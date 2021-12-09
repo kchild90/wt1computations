@@ -14,6 +14,7 @@
 int
 main( int argc, char *argv[] )
 {
+
     if(argc==2){
         pari_init(10000000,1);
         paristack_setsize(1999999999,  49999999999);
@@ -36,7 +37,7 @@ main( int argc, char *argv[] )
     }
     if(argc==3){
     pari_init(10000000,1);
-    paristack_setsize(2500000000,  10000000000);
+    paristack_setsize(250000000, 20000000000);
     int maxM = atoi(argv[1]);
     long threadnum = atoi(argv[2]);
     if(threadnum<1){
@@ -97,7 +98,7 @@ main( int argc, char *argv[] )
     }
 
     pari_init(1000000,1);
-    paristack_setsize(2500000000,  10000000000);
+    paristack_setsize(250000000, 10000000000);
 
 
     FILE *fptr = fopen("wt1_conrey_dihedral_dims.txt", "r"); // read in
@@ -679,6 +680,7 @@ main( int argc, char *argv[] )
     if (mode==999){
         printf("Should be up to?:");
         int maxM = itos(gp_read_stream(stdin));
+        pari_sp av = avma;
         for(int N = 1; N<=maxM; N++){
         int willcompsomething = 0;
             GEN stats = getAltCharStats(N);
@@ -711,6 +713,7 @@ main( int argc, char *argv[] )
         } else {
             fclose(in_file);
         }
+        set_avma(av);
         }
     }
 

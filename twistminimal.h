@@ -32,5 +32,7 @@ long canHaveExotic(long N, GEN stats);
 
 void displayForms(GEN N, GEN chiexp, GEN database, long numcoefs);
 
+GEN myLowStackInverse(GEN M);
+
 
 #endif // TWISTMINIMAL_H_INCLUDED

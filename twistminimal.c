@@ -1445,9 +1445,11 @@ listEmbeddings(TwistChar psi)
 {
     pari_sp ltop = avma;
     GEN embeddings = mkvec(mkvecsmalln(0));
+    long has2 = 0;
     if (psi.chiPfactors.chiPs[0].p==2  && psi.chiPfactors.chiPs[0].s>2 && (psi.chiPfactors.chiPs[0].e<4 || psi.chiPfactors.chiPs[0].e == psi.chiPfactors.chiPs[0].s-1))
     {
         embeddings = mkvec2(mkvecsmall(0),mkvecsmall(1));
+        has2 = 1;
     }
     for (long i = 0; i<psi.chiPfactors.numP; i++)
     {
@@ -1469,7 +1471,8 @@ listEmbeddings(TwistChar psi)
             }
             continue;
         }
-        GEN currentEmbeddings = cgetg(1,t_VEC);
+        GEN newEmbeddings = cgetg(1,t_VEC);
+        GEN covered = cgetg(1, t_VEC);
         for (long embeddingIndex = 1; embeddingIndex<lg(embeddings); embeddingIndex++)
         {
             GEN oldEmbedding = gel(embeddings, embeddingIndex);
@@ -1481,32 +1484,97 @@ listEmbeddings(TwistChar psi)
                 leftOrder = ulcm(leftOrder, embeddedOrder);
             }
             long thisOrder = itos(psiP.order);
-            GEN covered = cgetg(1,t_VECSMALL);
             for (long thisembed = 1; thisembed<(thisOrder>>1); thisembed++)
             {
-                if(vecsmall_isin(covered, thisembed)) continue;
                 if(!umodsu(thisembed, p)) continue;
-                covered = vecsmall_append(covered, thisembed);
-                long alt = Fl_mul(thisembed, 1+leftOrder, thisOrder);
-                while(alt!=thisembed)
-                {
-                    if(ugcd(alt,thisOrder)==ugcd(thisembed,thisOrder))
-                    {
-                        covered = vecsmall_append(covered, alt);
+                //check covered for embeddingWouldBe
+                GEN embeddingWouldBe = vecsmall_append(oldEmbedding, thisembed);
+                long embeddedOrder = ulcm(leftOrder, getEmbeddedChipOrder(psi, embeddingWouldBe, i));
+                long alreadyCovered = 0;
+                for(long coveredi = 1; coveredi<lg(covered); coveredi++){
+                    if(gequal(gel(covered,coveredi), embeddingWouldBe)){
+                        alreadyCovered = 1;
+                        break;
                     }
-                    alt = Fl_add(alt, Fl_mul(thisembed, leftOrder, thisOrder), thisOrder);
                 }
-                GEN newEmbedding = vecsmall_append(oldEmbedding, thisembed);
-                currentEmbeddings = vec_append(currentEmbeddings, newEmbedding);
+                if (alreadyCovered) continue;
+
+                //Append all galois orbit to covered
+                covered = vec_append(covered, embeddingWouldBe);
+                GEN alt = gcopy(embeddingWouldBe);
+
+                for(long galoispow = 2; galoispow<=embeddedOrder/2; galoispow++)
+                {
+                    for(long pn = 1; pn<lg(embeddingWouldBe)-has2; pn++)
+                    {
+                        if(!psi.chiPfactors.chiPs[pn-1].s) continue;
+                        long chiporder = itos(psi.chiPfactors.chiPs[pn-1].order);
+                        alt[pn+has2] = Fl_mul(embeddingWouldBe[pn+has2],galoispow,chiporder);
+                        if(chiporder<(alt[pn+has2]<<1))
+                        {
+                            alt[pn+has2] = chiporder-alt[pn+has2];
+                        }
+                    }
+                    if(gequal(alt, embeddingWouldBe)) break;
+                    if(ugcd(galoispow, embeddedOrder)==1){
+                        covered = vec_append(covered, gcopy(alt));
+                    }
+                }
+                //Append newembedding
+                newEmbeddings = vec_append(newEmbeddings, embeddingWouldBe);
             }
         }
-        embeddings = shallowcopy(currentEmbeddings);
+        embeddings = shallowcopy(newEmbeddings);
 
     }
     return gerepilecopy(ltop, embeddings);
 }
 
 GEN getGaloisPows(long order, TwistChar psi, GEN embedding)
+{
+    GEN galoisPows = mkvecsmall(1);
+    if(order==5 || order>6)
+    {
+        long has2 = lg(embedding)-1>psi.chiPfactors.numP;
+        GEN covered = mkvec(embedding);
+        GEN alt = gcopy(embedding);
+        for(long galoisPow = 2; galoisPow<=order/2; galoisPow++)
+        {
+            if(ugcd(galoisPow,order)!=1) continue;
+
+            for(long pn = 1; pn<lg(embedding)-has2; pn++)
+            {
+                if(!psi.chiPfactors.chiPs[pn-1].s) continue;
+                long chiporder = itos(psi.chiPfactors.chiPs[pn-1].order);
+                alt[pn+has2] = Fl_mul(embedding[pn+has2],galoisPow,chiporder);
+                if(chiporder<(alt[pn+has2]<<1))
+                {
+                    alt[pn+has2] = chiporder-alt[pn+has2];
+                }
+            }
+            long alreadyCovered = 0;
+            for(long coveredi = 1; coveredi<lg(covered); coveredi++)
+            {
+                if(gequal(gel(covered,coveredi), alt))
+                {
+                    alreadyCovered = 1;
+                    break;
+                }
+            }
+            if (alreadyCovered) continue;
+
+            galoisPows = vecsmall_append(galoisPows, galoisPow);
+
+            //Add to covered
+            covered = vec_append(covered, gcopy(alt));
+        }
+
+
+    }
+    return galoisPows;
+}
+
+GEN OLDgetGaloisPows(long order, TwistChar psi, GEN embedding)
 {
     GEN galoisPows = mkvecsmall(1);
     if(order==5 || order>6)
@@ -1620,6 +1688,20 @@ GEN embedTrace(GEN element, GEN embedding, TwistChar psi, GEN order)
     return gerepileupto(ltop, embeddedElement);
 }
 
+GEN getFullOrbit(GEN singleElt, GEN substitutes)
+{
+    pari_sp ltop = avma;
+    if(typ(singleElt)==t_POL){
+        GEN val = gcopy(singleElt);
+        for(long powi = 2; powi<lg(substitutes); powi++){
+            val = gadd(val, QX_ZXQV_eval(singleElt, gel(substitutes,powi), NULL));
+        }
+        val = constant_coeff(val);
+        return gerepileupto(ltop, val);
+                    }
+        return gmulgs(singleElt, lg(substitutes)-1);
+}
+
 //Compute a twist-space for weight 2
 GEN computeBasis(GEN stat, long M, GEN SQRTS, TwistChar psi, long details)
 {
@@ -1661,14 +1743,11 @@ GEN computeBasis(GEN stat, long M, GEN SQRTS, TwistChar psi, long details)
         GEN basisCoefs = zeromat(numcoefs, 1);
         gel(embeddedTraceForm, 1) = stoi(numElts);
         gcoeff(basisCoefs, 1, 1) = gel(embeddedTraceForm,1);
+        pari_sp aboveCalculations = avma;
         //If we need more coefficients for the traceForm or embeddedTraceFom, add the needed coefficients
         if (lg(traceForm)<=numcoefs)
         {
             traceForm = shallowconcat(traceForm, const_vec(numcoefs+1-lg(traceForm), stoi(-999)));
-        }
-        if (lg(embeddedTraceForm)<=numcoefs)
-        {
-            embeddedTraceForm = shallowconcat(embeddedTraceForm, const_vec(numcoefs+1-lg(embeddedTraceForm), stoi(-999)));
         }
         for (long n = 2; n<=numcoefs; n++)
         {
@@ -1681,20 +1760,13 @@ GEN computeBasis(GEN stat, long M, GEN SQRTS, TwistChar psi, long details)
             {
                 gel(embeddedTraceForm, n) = embedTrace(gel(traceForm, n), gel(embeddings,i), psi, stoi(order));
                 if(lg(galoisPows)>2){
-                    GEN fullOrbit = gel(embeddedTraceForm,n);
-                    if(typ(fullOrbit)==t_POL){
-                    for(long powi = 2; powi<lg(galoisPows); powi++){
-                    fullOrbit = gadd(fullOrbit, QX_ZXQV_eval(gel(embeddedTraceForm,n), gel(substitutes,powi), NULL));
-                    }
-                    gel(embeddedTraceForm,n)=constant_coeff(fullOrbit);
-                    } else {
-                        gel(embeddedTraceForm,n) = gmulgs(fullOrbit, lg(galoisPows)-1);
-                    }
+                    gel(embeddedTraceForm,n) = getFullOrbit(gel(embeddedTraceForm, n), substitutes);
                 }
             }
             gcoeff(basisCoefs,n,1) = gel(embeddedTraceForm, n);
         }
         //Hit the traceform with hecke operators
+        long onlyTriedOnce = 1;
         for (long m = 2; lg(basisCoefs)<=numElts; m++)
         {
             if (!uissquarefree(psi.gcds[umodsu(m*m,M)+1])) continue;
@@ -1726,16 +1798,7 @@ GEN computeBasis(GEN stat, long M, GEN SQRTS, TwistChar psi, long details)
                     {
                         gel(embeddedTraceForm, mnoverr2) = embedTrace(gel(traceForm, mnoverr2), gel(embeddings,i), psi, stoi(order));
                         if(lg(galoisPows)>2){
-                    GEN fullOrbit = gel(embeddedTraceForm,mnoverr2);
-                    if(typ(fullOrbit)==t_POL){
-
-                    for(long powi = 2; powi<lg(galoisPows); powi++){
-                    fullOrbit = gadd(fullOrbit, QX_ZXQV_eval(gel(embeddedTraceForm,mnoverr2), gel(substitutes, powi), NULL));
-                    }
-                    gel(embeddedTraceForm,mnoverr2) = constant_coeff(fullOrbit);
-                    } else {
-                    gel(embeddedTraceForm,mnoverr2) = gmulgs(gel(embeddedTraceForm,mnoverr2), lg(galoisPows)-1);
-                    }
+                        gel(embeddedTraceForm,mnoverr2) = getFullOrbit(gel(embeddedTraceForm,mnoverr2), substitutes);
                 }
                     }
                     entry = gadd(entry, gmulgs(gel(embeddedTraceForm, mnoverr2), r));
@@ -1748,15 +1811,17 @@ GEN computeBasis(GEN stat, long M, GEN SQRTS, TwistChar psi, long details)
                 basisCoefs = concat(basisCoefs, element);
                 operatorsUsed = vecsmall_append(operatorsUsed, m);
                 if(details) pari_printf("now have %ld elements of %ld needed\n", lg(basisCoefs)-1, numElts);
+                gerepileall(aboveCalculations, 4, &basisCoefs, &operatorsUsed, &traceForm, &embeddedTraceForm);
+                onlyTriedOnce = 1;
             }
             else
             {
                 //Perhaps need additional coefficients
-                if (numcoefs<m)
+                if (onlyTriedOnce)
                 {
-                    long diff = m-numcoefs;
+                    long diff = 5;
                     basisCoefs = vconcat(basisCoefs, zeromat(diff,lg(basisCoefs)-1));
-                    numcoefs=m;
+                    numcoefs+=diff;
                     if (lg(traceForm)<=numcoefs*operatorsUsed[lg(basisCoefs)-1])
                     {
                         traceForm = shallowconcat(traceForm, const_vec(numcoefs*operatorsUsed[lg(basisCoefs)-1]+1-lg(traceForm), stoi(-999)));
@@ -1765,12 +1830,12 @@ GEN computeBasis(GEN stat, long M, GEN SQRTS, TwistChar psi, long details)
                     {
                         embeddedTraceForm = shallowconcat(embeddedTraceForm, const_vec(numcoefs*operatorsUsed[lg(basisCoefs)-1]+1-lg(embeddedTraceForm), stoi(-999)));
                     }
-                    m--;
+                    for (long furthern = numcoefs+1-diff; furthern<=numcoefs; furthern++){
                     for (long j = 1; j< lg(basisCoefs); j++)
                     {
-                        long mn=numcoefs*operatorsUsed[j];
+                        long mn=furthern*operatorsUsed[j];
                         GEN entry = gen_0;
-                        long gcdmn = cgcd(numcoefs, operatorsUsed[j]);
+                        long gcdmn = cgcd(furthern, operatorsUsed[j]);
                         GEN divsmn = divisorsu(gcdmn);
                         for (long divi=1; divi<lg(divsmn); divi++)
                         {
@@ -1785,17 +1850,18 @@ GEN computeBasis(GEN stat, long M, GEN SQRTS, TwistChar psi, long details)
                             {
                                 gel(embeddedTraceForm, mnoverr2) = embedTrace(gel(traceForm, mnoverr2), gel(embeddings,i),psi, stoi(order));
                                 if(lg(galoisPows)>2){
-                    GEN fullOrbit = gel(embeddedTraceForm,mnoverr2);
-                    for(long powi = 2; powi<lg(galoisPows); powi++){
-                    fullOrbit = gadd(fullOrbit, QX_ZXQV_eval(gel(embeddedTraceForm,mnoverr2),gel(substitutes, powi), NULL));
-                    }
-                    gel(embeddedTraceForm,mnoverr2) = fullOrbit;
-                }
+                                        gel(embeddedTraceForm, mnoverr2) = getFullOrbit(gel(embeddedTraceForm, mnoverr2), substitutes);
+                                }
                             }
                             entry = gadd(entry, gmulgs(gel(embeddedTraceForm, mnoverr2), r));
                         }
-                        gcoeff(basisCoefs, numcoefs, j) = entry;
+                        gcoeff(basisCoefs, furthern, j) = entry;
                     }
+                    }
+                    m--;
+                    onlyTriedOnce = 0;
+                } else {
+                    onlyTriedOnce = 1;
                 }
             }
         }
@@ -1885,11 +1951,10 @@ GEN getBasisFromTrace(TwistChar psi, GEN SQRTS, GEN minspace, long firstCoef, lo
         }
 
         GEN operatorsUsed = gel(embeddedBasis, 2);
-        GEN embeddedTraceForm = const_vec(lg(gel(minspace,2))-1,stoi(-999));
-        GEN divsr, fullOrbit;
+        GEN embeddedTraceForm = const_vec(lg(gel(minspace,2))-1,NULL);
+        GEN divsr;
 
         //Get all the embedded trace form we need
-        pari_sp aboveEmbeddedTraceFormCalc = avma;
         for (long n = firstCoef; n<=lastCoef; n++)
         {
             long indicator = myugcd(psi.gcds, n*n);
@@ -1906,27 +1971,17 @@ GEN getBasisFromTrace(TwistChar psi, GEN SQRTS, GEN minspace, long firstCoef, lo
                     long r = divsr[divi];
                     if (myugcd(psi.gcds, r)!=1) continue;
                     long nmoverr2 = nm/r/r;
-                    if(gequalgs(gel(embeddedTraceForm, nmoverr2),-999))
+                    if(gel(embeddedTraceForm, nmoverr2)==NULL)
                     {
                         gel(embeddedTraceForm, nmoverr2) = embedTrace(gel(traceform,nmoverr2), gel(embeddedBasis, 1), psi, stoi(order));
                         if(lg(galoisPows)>2){
-                    fullOrbit = gel(embeddedTraceForm,nmoverr2);
-                    if(typ(fullOrbit)==t_POL){
-                    for(long powi = 2; powi<lg(galoisPows); powi++){
-                        fullOrbit = gadd(fullOrbit, QX_ZXQV_eval(gel(embeddedTraceForm,nmoverr2), gel(substitutes, powi), NULL));
-                    }
-                    gel(embeddedTraceForm,nmoverr2)=constant_coeff(fullOrbit);
-                    } else {
-                    gel(embeddedTraceForm,nmoverr2) = gmulgs(fullOrbit, lg(galoisPows)-1);
-                    }
+                                gel(embeddedTraceForm, nmoverr2) = getFullOrbit(gel(embeddedTraceForm,nmoverr2), substitutes);
                 }
                     }
                 }
-            }
-            if(lg(galoisPows)>2 && n%30==0){
-            embeddedTraceForm = gerepilecopy(aboveEmbeddedTraceFormCalc, embeddedTraceForm);
             }
         }
+        //if(psi.M==289 && psi.Mdash==17) pari_printf("embeddedTraceForm is %Ps\n", vecslice(embeddedTraceForm,1,10));
 
 
         GEN basisCoefs = zeromatcopy(lastCoef-offset, lg(operatorsUsed)-1);
@@ -1942,7 +1997,7 @@ GEN getBasisFromTrace(TwistChar psi, GEN SQRTS, GEN minspace, long firstCoef, lo
             for (long j = 1; j<lg(basisCoefs); j++)
             {
                 long nm = n*operatorsUsed[j];
-                GEN divsr = divisorsu(ugcd(n,operatorsUsed[j]));
+                divsr = divisorsu(ugcd(n,operatorsUsed[j]));
                 for (long divi=1; divi<lg(divsr); divi++)
                 {
                     long r = divsr[divi];
@@ -2840,21 +2895,16 @@ GEN stabiliseUpTo(GEN gcds, GEN chiVals, GEN dividedSpace, long heckep, long fie
     long Tp = 2;
 
     GEN stable = MaximalTnStableSubspace(gcds, chiVals, dividedSpace, Tp, fieldp);
+    stable = gerepilecopy(ltop, stable);
     if (lg(stable)==oldDim+1) return stable;
 
     while (heckep != Tp)
     {
         Tp = unextprime(Tp+1);
         stable = MaximalTnStableSubspace(gcds, chiVals, stable, Tp, fieldp);
+        stable = gerepilecopy(ltop, stable);
         if (lg(stable)==oldDim+1) return stable;
     }
-    /*Tp = unextprime(Tp+1);
-    while (Flm_rank(rowslice(stable,1,nbrows(stable)/Tp), fieldp)==lg(stable)-1){
-        stable = MaximalTnStableSubspace(gcds, chiVals, stable, Tp, fieldp);
-        if (lg(stable)==oldDim+1) return stable;
-        Tp = unextprime(Tp+1);
-    }*/
-    //GEN stable = MaximalTnStableSubspace(gcds, chiVals, dividedSpace, heckep, fieldp);
     return gerepileupto(ltop, stable);
 }
 
@@ -3926,9 +3976,9 @@ ESTABLISHFIELD:
                 if(details) pari_printf("doing first additional division\n");
                 altMult = divideBasisByEis(rowslice(embedWt2Bas, 2, coeffsneeded/lowerMult+1), eis, fieldp);
                 intersection = Flm_intersect(intersection, altMult, fieldp);
+                intersection = gerepileupto(topOfEisDiv, intersection);
                 if(lg(intersection)-1==oldDim) return database;
                 if(lg(intersection)-1==oldDim+dihedralDim) break;
-                intersection = gerepileupto(topOfEisDiv, intersection);
             }
             //Otherwise, we reduce the computation by multiplying the existing weight 1 space
             //and taking the intersection at weight 2 before dividing again
@@ -3939,8 +3989,8 @@ ESTABLISHFIELD:
                 altMult = Flm_intersect(rowslice(embedWt2Bas,2,1+coeffsneeded/lowerMult), altMult, fieldp);
                 if(lg(altMult)-1==oldDim) return database;
                 intersection = divideBasisByEis(altMult, eis, fieldp);
-                if(lg(intersection)-1==oldDim+dihedralDim) break;
                 intersection = gerepileupto(topOfEisDiv, intersection);
+                if(lg(intersection)-1==oldDim+dihedralDim) break;
             }
         }
         //Everything has been done at the smallest possible submatrix, so now we recover the
@@ -4125,6 +4175,7 @@ ESTABLISHFIELD:
     GEN inversionDetails = gel(database,4);
     GEN wt2inv = gel(inversionDetails,1);
     GEN pv = gel(inversionDetails, 2);
+    GEN den = gel(inversionDetails, 3);
 
     if(details) pari_printf("computing Eis series over Q \n");
 
@@ -4143,9 +4194,10 @@ ESTABLISHFIELD:
 
         wt2check = RgX_to_RgC(wt2check, coeffsneeded);
         //GEN altTransform = gauss(spaceInWt2, mkmat(lift(wt2check)));
-        GEN altTransform = QXQM_mul(wt2inv, extract0(mkmat(lift(wt2check)),gel(pv,1), mkvecsmall(1)), defpol);
-        GEN firstCheck = QXQM_mul(spaceInWt2, altTransform, defpol);
-            long isequal = gequal(gel(firstCheck,1), wt2check);
+        GEN altTransform = ZXQM_mul(wt2inv, extract0(mkmat(lift(wt2check)),gel(pv,1), mkvecsmall(1)), defpol);
+        GEN firstCheck = ZXQM_mul(spaceInWt2, altTransform, defpol);
+        GEN secondCheck = gmul(wt2check, den);
+            long isequal = gequal(gel(firstCheck,1), secondCheck);
             if(details) pari_printf("adding to transformations? %ld\n", isequal);
             if(isequal)
             {
@@ -4191,9 +4243,12 @@ GEN getTraceVec(GEN group, GEN chiL)
     return lexico;
 }
 
+//GEN myLowStackInverse
+
 GEN updateDatabaseForLevel(GEN database, long N, long maxM)
 {
-    //Set details=1 for very verbose output
+    //Set details = 1 for very verbose output
+    //Set details = 0 for normal running
     long details = 0;
     if(details) pari_printf("finding all characters\n");
     GEN stats = getAltCharStats(N);
@@ -4307,6 +4362,8 @@ GEN updateDatabaseForLevel(GEN database, long N, long maxM)
     if(!getNeededCoeffs(gel(gel(database, 2), N)))
     {
         if(details) pari_printf("expanding to max rank needed\n");
+        if(details) pari_printf("weight 2 space is length %ld\n", lg(spaceInWt2)-1);
+        if(details) pari_printf("first two rows are %Ps\n", rowslice(spaceInWt2,1,2));
         GEN pv = ZM_indexrank(spaceInWt2);
         pv = gel(pv,1);
         long firstFullRankRow = pv[lg(pv)-1];
@@ -4332,28 +4389,17 @@ GEN updateDatabaseForLevel(GEN database, long N, long maxM)
     }
 
     if(details) pari_printf("inverting wt 2 basis\n");
-    GEN pv = ZM_indexrank(spaceInWt2);
-    pari_sp aboveInversion = avma;
-    GEN wt2inv = cgetg(1,t_MAT);
-    GEN partial;
-    long splitBy = 90000/lg(spaceInWt2);
-    splitBy = lg(spaceInWt2)/splitBy+1;
-    splitBy = lg(spaceInWt2)/splitBy+1;
-        for(long i = 1; i<=(lg(spaceInWt2)-2)/splitBy; i++){
-            if(details) pari_printf("performing inversion %ld of %ld\n", i, (lg(spaceInWt2)-2)/splitBy);
-            partial = zeromat(splitBy*(i-1),splitBy);
-            partial = vconcat(partial, matid(splitBy));
-            partial = vconcat(partial, zeromat(lg(spaceInWt2)-1-nbrows(partial), splitBy));
-            wt2inv = gconcat(wt2inv, ZM_gauss(extract0(spaceInWt2, gel(pv,1), gel(pv,2)), partial));
-            wt2inv = gerepilecopy(aboveInversion, wt2inv);
-        }
-        partial = vconcat(zeromat(lg(wt2inv)-1,lg(spaceInWt2)-lg(wt2inv)), matid(lg(spaceInWt2)-lg(wt2inv)));
-        wt2inv = gconcat(wt2inv, ZM_gauss(extract0(spaceInWt2, gel(pv,1), gel(pv,2)), partial));
-        gel(database,4) = mkvec2(wt2inv, pv);
-
-
-
+    GEN pv, den;
+    GEN wt2inv = ZM_pseudoinv(spaceInWt2, &pv, &den);
+    gel(database,4) = mkvec3(wt2inv,pv, den);
     database = gerepilecopy(veryTop, database);
+
+    if(details) pari_printf("inverted. Resetting stack size\n");
+
+    paristack_resize(250000000);
+
+    if(details) pari_printf("Stack size reset\n");
+
     for (long i = 1; i<lg(stats); i++)
     {
         long exoticLift = canHaveExotic(N, gel(stats,i));
@@ -4409,57 +4455,44 @@ long verifywt2(long N)
         fclose(in_file);
     }
 
-
-    long h = eulerphiu(N)<<1;
-
-    long fieldp = h+1;
-FIELDINVERIFY:
-    while(!uisprime(fieldp)) fieldp+=h;
-    long primforp = itos(lift(znprimroot(stoi(fieldp))));
     long numKnown = coefsKnownSpecific(wt2struct);
-    GEN wt2polySpace = getWt2newspace(N, wt2struct, 1, numKnown);
 
-    pari_printf("wt2struct is %Ps\n", wt2polySpace);
 
-    GEN embedSpace = embedWt2Space(wt2polySpace, fieldp, primforp);
-    pari_printf("num elts %ld and rank %ld, coeffs used is %ld\n", lg(embedSpace)-1, Flm_rank(embedSpace, fieldp), numKnown);
-    pari_printf("field is %ld\n", fieldp);
-    if(Flm_rank(embedSpace, fieldp)<lg(embedSpace)-1)
-    {
-        fieldp+=h;
-        goto FIELDINVERIFY;
-    }
+    GEN spaceInWt2 = getWt2newspace(N, wt2struct, 1, numKnown);
+
+
     GEN mf = mfinit(mkvec2(stoi(N), gen_2), 0);
-    GEN M2 = zero_Flm_copy(numKnown, itos(mfdim(mkvec2(stoi(N),gen_2),0)));
+    GEN M2 = cgetg(itos(mfdim(mkvec2(stoi(N),gen_2),0))+1, t_MAT);
     GEN mBas = mfbasis(mf, 0);
     for(long i = 1; i<lg(M2); i++)
     {
         GEN basElt = gel(mBas,i);
-        for(long j = 1; j<=numKnown; j++)
-        {
-            gel(M2,i)[j] = Rg_to_Fl(mfcoef(basElt, j), fieldp);
-        }
+        gel(M2,i) = mfcoefs(basElt, nbrows(spaceInWt2), 1);
     }
-    if (lg(M2)!=lg(embedSpace))
+    M2 = rowslice(M2,2,lg(gel(spaceInWt2,1)));
+    if (lg(M2)!=lg(spaceInWt2))
     {
+        pari_printf("my space is %Ps\n", spaceInWt2);
         pari_printf("M2 is %Ps\n", M2);
+        pari_printf("lengths differ?\n");
         set_avma(ltop);
         return 0;
     }
-    GEN gauss = Flm_gauss(embedSpace, M2, fieldp);
+    GEN gauss = ZM_gauss(spaceInWt2, M2);
     if(gauss==NULL)
     {
-        pari_printf("embedspace is %Ps\n", embedSpace);
-        pari_printf("field is %ld\n", fieldp);
+        pari_printf("my space is %Ps\n", spaceInWt2);
+        pari_printf("M2 is %Ps\n", M2);
+        pari_printf("gauss was null?\n");
         set_avma(ltop);
         return 0;
     }
-    long correct = gequal(Flm_mul(embedSpace, gauss, fieldp), M2);
+    long correct = ZM_equal(QM_mul(spaceInWt2, gauss), M2);
     if(!correct)
     {
-        pari_printf("embedspace is %Ps\n", embedSpace);
-        pari_printf("field is %ld\n", fieldp);
-        //pari_printf("\n\n\n\n\n\n\n M2 is %Ps\n", M2);
+        pari_printf("my space is %Ps\n", spaceInWt2);
+        pari_printf("M2 is %Ps\n", M2);
+        pari_printf("mul didn't equal\n");
     }
     set_avma(ltop);
     return correct;
