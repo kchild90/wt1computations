@@ -1532,6 +1532,7 @@ listEmbeddings(TwistChar psi)
 
 GEN getGaloisPows(long order, TwistChar psi, GEN embedding)
 {
+    pari_sp ltop = avma;
     GEN galoisPows = mkvecsmall(1);
     if(order==5 || order>6)
     {
@@ -1571,7 +1572,7 @@ GEN getGaloisPows(long order, TwistChar psi, GEN embedding)
 
 
     }
-    return galoisPows;
+    return gerepilecopy(ltop,galoisPows);
 }
 
 GEN OLDgetGaloisPows(long order, TwistChar psi, GEN embedding)
@@ -2277,6 +2278,7 @@ GEN MaximalTnStableSubspace(GEN gcds, GEN chiVals, GEN basis, long m, long field
 
     //Repeatedly compute the Tm stable subspace by computing the kernel of these two
     //objects concatenated
+    pari_sp aboveIter = avma;
     while(1)
     {
         GEN kernel = Flm_ker(concat(TmBasis, smallBasis), fieldp);
@@ -2288,6 +2290,7 @@ GEN MaximalTnStableSubspace(GEN gcds, GEN chiVals, GEN basis, long m, long field
         basis = Flm_mul(basis, kernel, fieldp);
         smallBasis = rowslice(basis, 1, smallnrow);
         TmBasis = Flm_mul(TmBasis, kernel, fieldp);
+        gerepileall(aboveIter, 3, &basis, &smallBasis, &TmBasis);
     }
 
 }
@@ -4512,6 +4515,124 @@ void specifTrace(long N, long n)
     TwistChar psi = initialiseWt2TwistChar(N, stat, allgroups);
     psi.gcds = mkgcd(N);
     wt2trivialTraceByPsi(sqrts, n, psi, 1);
+}
+
+GEN generateFourierCoefficients(long N){
+    long coeffsNeeded = mfsturmNk(N,1);
+    long altNeeded = 30*usqrt(N);
+    if(coeffsNeeded<=altNeeded) coeffsNeeded = altNeeded+1;
+    char filename[30];
+    sprintf(filename, "wt1spaces/%ld.txt", N);
+    FILE *in_file = fopen(filename, "r");
+    if(in_file==NULL){
+        return gen_0;
+    }
+    GEN oldData = gp_read_file(filename);
+    fclose(in_file);
+    if (gequal0(oldData)) return gen_0;
+    GEN wt2data = zerovec(N);
+    GEN divs = divisorsu(N);
+    for(long i = 2; i<lg(divs); i++){
+        sprintf(filename, "wt2spaces/%ld.txt", divs[i]);
+        in_file = fopen(filename, "r");
+        if(in_file!=NULL){
+            gel(wt2data,divs[i]) = gp_read_file(filename);
+            fclose(in_file);
+        }
+    }
+    long knownCoefs = numcoefsknown(wt2data, N);
+    if(knownCoefs<coeffsNeeded) expandBasisFor(wt2data, N, coeffsNeeded);
+    GEN spaceInWt2 = getWt2cuspspace(wt2data, N, coeffsNeeded);
+    long h = eulerphiu(N);
+    for (long j = 1; j<lg(oldData); j++)
+        {
+            for(long satakei = 1; satakei<lg(gel(gel(oldData,j),2)); satakei++){
+                h = ulcm(h, itos(gcoeff(gel(gel(oldData,j), 2),1,satakei)));
+            }
+        }
+    long fieldp = h+1;
+    while(fieldp<=N) fieldp+=h;
+RIGHTBACKHERE:
+    while(!uisprime(fieldp)) fieldp+=h;
+    long primforp = itos(lift(znprimroot(stoi(fieldp))));
+    GEN embeddedBasis = embedWt2Space(spaceInWt2, fieldp, primforp);
+    if(Flm_rank(embeddedBasis,fieldp)<lg(embeddedBasis)-1){
+        fieldp+=h;
+        goto RIGHTBACKHERE;
+    }
+    GEN outputForms = cgetg(1,t_VEC);
+    GEN group = znstar0(stoi(N),1);
+        for (long j = 1; j<lg(oldData); j++)
+        {
+        GEN chiPrim = znchartoprimitive(group, gel(gel(oldData,j),1));
+        GEN normal = znconreylog_normalize(gel(chiPrim,1), gel(chiPrim,2));
+        long charOrder = itos(zncharorder(group, gel(gel(oldData,j),1)));
+        GEN polyVals = ncharvecexpo(gel(chiPrim,1), normal);
+            GEN satakes = gel(gel(oldData,j), 2);
+            long cycloOrder = charOrder;
+        for(long i = 1; i<lg(satakes); i++){
+            gel(satakes,i) = vec_to_vecsmall(gel(satakes,i));
+            cycloOrder = ulcm(cycloOrder, gel(satakes,i)[1]);
+        }
+        GEN cycloPol = polcyclo(cycloOrder, 0);
+            GEN satakesToForms = cgetg(1,t_MAT);
+            for(long satakei = 1; satakei<lg(satakes); satakei++){
+                satakesToForms = vec_append(satakesToForms, liftSatakeToQ(N, gel(satakes,satakei), polyVals, uprime(nbrows(satakes))-1, cycloOrder, charOrder));
+            }
+            if(coeffsNeeded>nbrows(satakesToForms)){
+                pari_printf("getting more!\n");
+                long charOrderElt = Fl_powu(primforp, (fieldp-1)/charOrder, fieldp);
+                GEN chiVals = const_vecsmall(lg(polyVals)-1,0);
+                for(long i = 1; i<lg(chiVals); i++)
+                {
+                    if (polyVals[i]!=-1)
+                    {
+                        chiVals[i]=Fl_powu(charOrderElt, polyVals[i], fieldp);
+                    }
+                }
+                long eisC = eisConst(chiVals, fieldp);
+                if(!eisC){
+                    fieldp+=h;
+                    goto RIGHTBACKHERE;
+                }
+                GEN eis = eisSeries(chiVals, coeffsNeeded, fieldp, eisC);
+                GEN tempWt1 = divideBasisByEis(embeddedBasis, eis, fieldp);
+                satakesToForms = cgetg(1,t_MAT);
+            for(long satakei = 1; satakei<lg(satakes); satakei++){
+                satakesToForms = vec_append(satakesToForms, liftSatakeToFp(N, gel(satakes,satakei), chiVals, fieldp, primforp));
+            }
+                GEN gaussTransform = Flm_gauss(rowslice(tempWt1,1,nbrows(satakesToForms)), satakesToForms, fieldp);
+                satakesToForms = Flm_mul(tempWt1, gaussTransform, fieldp);
+                satakes = basisToSatake(mkgcd(N), N, satakesToForms, chiVals, fieldp, primforp);
+                gel(gel(oldData,j),2) = satakes;
+                sprintf(filename, "wt1spaces/%ld.txt", N);
+                FILE *out_file = fopen(filename, "w");
+                fclose(out_file);
+                satakesToForms = cgetg(1,t_MAT);
+            for(long satakei = 1; satakei<lg(satakes); satakei++){
+                satakesToForms = vec_append(satakesToForms, liftSatakeToQ(N, gel(satakes,satakei), polyVals, uprime(nbrows(satakes))-1, cycloOrder, charOrder));
+            }
+            }
+            for (long i = 1; i<lg(satakesToForms); i++){
+                long deflateBy = cycloOrder;
+                GEN fourierExpansion = gel(satakesToForms,i);
+                    for(long fourj = 2; fourj<lg(fourierExpansion); fourj++)
+                    {
+                        if(gequal0(gel(fourierExpansion, fourj))) continue;
+                        gel(fourierExpansion,fourj) = QXQ_div(gel(fourierExpansion,fourj), gel(fourierExpansion,1), cycloPol);
+                        deflateBy = ugcd(deflateBy, degree(gel(fourierExpansion,fourj)));
+                    }
+                    if(deflateBy>1){
+                    for(long fourj = 2; fourj<lg(fourierExpansion); fourj++)
+                        {
+                            gel(fourierExpansion, fourj) = RgX_deflate(gel(fourierExpansion,fourj), deflateBy);
+                        }
+                    }
+                    outputForms = vec_append(outputForms, mkvec3(gel(gel(oldData,j),1),stoi(cycloOrder/deflateBy), fourierExpansion));
+                }
+
+            }
+    return outputForms;
 }
 
 

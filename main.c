@@ -321,6 +321,44 @@ main( int argc, char *argv[] )
         pari_printf("All computed dimensions for level %ld are correct.\n",N);
     }
 
+    if(mode==7){
+        char filename[30];
+        FILE *out_file = fopen("wt1_form_dims.txt", "w");
+        printf("Please choose the maximum level you would like to generate a dimension file for: ");
+        int maxM = itos(gp_read_stream(stdin));
+        GEN database = mkvec3(zerovec(maxM), zerovec(maxM), dihedralDims);
+        pari_sp ltop = avma;
+        for(long N=23; N<=maxM; N++)
+        {
+            pari_printf("processing level %ld\n", N);
+            sprintf(filename, "wt1spaces/%ld.txt", N);
+            FILE *in_file = fopen(filename, "r");
+            if(in_file != NULL){
+            gel(gel(database,1),N) = gp_read_file(filename);
+            fclose(in_file);
+            }
+            GEN chars = getAllCharStats(N);
+            for(int i=1; i<lg(chars); i++)
+            {
+                long dimension = wt1newformdimension(N, gel(chars,i), database);
+                if(dimension!=0){
+                    pari_fprintf(out_file, "%ld:%Ps:%ld\n", N,gel(chars,i),dimension);
+                }
+            }
+            GEN something = generateFourierCoefficients(N);
+            if(!gequal0(something)){
+            sprintf(filename, "wt1coefs/%ld.txt", N);
+            FILE *coefs_out = fopen(filename, "w");
+            for(int i = 1; i<lg(something); i++){
+                pari_fprintf(coefs_out, "%Ps\n", gel(something,i));
+            }
+            fclose(coefs_out);
+            }
+            set_avma(ltop);
+        }
+        fclose(out_file);
+    }
+
     if(mode==8){
             printf("Please choose the maximum level you would like to convert dihedral dimensions for: ");
             int maxM = itos(gp_read_stream(stdin));

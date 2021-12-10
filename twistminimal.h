@@ -34,5 +34,6 @@ void displayForms(GEN N, GEN chiexp, GEN database, long numcoefs);
 
 GEN myLowStackInverse(GEN M);
 
+GEN generateFourierCoefficients(long N);
 
 #endif // TWISTMINIMAL_H_INCLUDED
