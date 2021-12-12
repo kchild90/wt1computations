@@ -2226,7 +2226,7 @@ GEN multiplyMatByEis(GEN mat, GEN eis, long fieldp)
 
 //Given wt 2 space in single-variable polynomial form, a fieldp and primp a primitive fieldp-1 root
 //of unity, embed the space into the field.
-GEN embedWt2Space(GEN space, long fieldp, long primp)
+GEN embedWt2Space(GEN space, long fieldp)
 {
     pari_sp ltop = avma;
     GEN coeffs = ZM_to_Flm(space, fieldp);
@@ -2595,6 +2595,7 @@ void expandBasisFor(GEN database, long N, long lastCoef)
         pari_sp ltop = avma;
         if (divs[i]<11) continue;
         if(vecsearch(mkvecsmalln(7, 12, 13, 16, 18, 25, 28, 60), stoi(divs[i]), NULL)>0) continue;
+        pari_printf("expanding level %ld\n", divs[i]);
         GEN altSpace = expandBasisUpTo(divs[i], gcopy(gel(database, divs[i])), lastCoef);
         long didAnything = !gequal(altSpace, gel(database, divs[i]));
         if (!didAnything) {
@@ -2615,6 +2616,7 @@ void expandBasisFor(GEN database, long N, long lastCoef)
         flock(fileno(dummy_file), LOCK_UN);
         fclose(dummy_file);
     }
+    pari_printf("all expanded\n");
 }
 
 //Coefficients of a weight 2 space already known, in a matrix, append coefficients to the matrix
@@ -3294,7 +3296,7 @@ GEN getKnownForms(GEN chiVals, GEN database, long N, GEN stats, GEN wt1data, lon
                 GEN truncatedSpace;
                 if(Flm_rank(rowslice(stable,1,shorterLength), fieldp)<lg(stable)-1){
                     GEN wt2space = getWt2cuspspace(database, div, numCoeffs);
-                    GEN tempEmbed = embedWt2Space(wt2space, fieldp, primforp);
+                    GEN tempEmbed = embedWt2Space(wt2space, fieldp);
                     GEN tempWt1 = divideBasisByEis(tempEmbed, eis, fieldp);
                     GEN gaussTransform = Flm_gauss(rowslice(tempWt1,1,shorterLength), satakesToForms, fieldp);
                     truncatedSpace = Flm_mul(tempWt1, gaussTransform, fieldp);
@@ -3928,7 +3930,7 @@ ESTABLISHFIELD:
 
     if(details) pari_printf("embedding space\n");
     //Embed the weight 2 space into the field
-    GEN embedWt2Bas = embedWt2Space(spaceInWt2, fieldp, primforp);
+    GEN embedWt2Bas = embedWt2Space(spaceInWt2, fieldp);
 
     if(details)
     {
@@ -3958,7 +3960,7 @@ ESTABLISHFIELD:
         //Compute the subspace of the weight 2 cuspform space with first 2 coefficients 0
         GEN superCuspidalSpace = extendWt2cuspspace(gel(database,2), N, spaceInWt2, coeffsneeded+1);
         GEN altMult, eis;
-        embedWt2Bas = embedWt2Space(superCuspidalSpace, fieldp, primforp);
+        embedWt2Bas = embedWt2Space(superCuspidalSpace, fieldp);
         embedWt2Bas = getCuspidalUpTo(embedWt2Bas, 1, fieldp);
 
 
@@ -4072,7 +4074,7 @@ ESTABLISHFIELD:
 
     if (typ(diagonalised)==t_INT)
     {
-        embedWt2Bas = embedWt2Space(spaceInWt2, fieldp, primforp);
+        embedWt2Bas = embedWt2Space(spaceInWt2, fieldp);
         GEN altMult = multiplyMatByEis(stable, Flv_to_Flx(eisInf,0), fieldp);
         GEN transformation = Flm_gauss(rowslice(embedWt2Bas,1,nbrows(altMult)), altMult, fieldp);
         pari_sp diagtop = avma;
@@ -4091,7 +4093,7 @@ ESTABLISHFIELD:
         if(knownCoefsThisLevel<coeffsneeded) expandBasisFor(gel(database,2), N, coeffsneeded);
         database = gerepilecopy(diagtop, database);
         GEN tempWt2 = extendWt2cuspspace(gel(database,2), N, spaceInWt2, coeffsneeded);
-        GEN tempWt2Bas = embedWt2Space(tempWt2, fieldp, primforp);
+        GEN tempWt2Bas = embedWt2Space(tempWt2, fieldp);
         GEN tempEis = extendEisSeries(eisInf, embedVals, coeffsneeded, fieldp);
         GEN altMult = Flm_mul(tempWt2Bas, transformation, fieldp);
         GEN tempStable = divideBasisByEis(altMult, tempEis, fieldp);
@@ -4360,40 +4362,36 @@ GEN updateDatabaseForLevel(GEN database, long N, long maxM)
     if(knownCoefsThisLevel<coeffsneeded+1) expandBasisFor(gel(database,2), N, coeffsneeded+1);
     if(details) pari_printf("done expansion, getting cuspspace\n");
     //Matrix of coefficients in weight 2, not embedded into field
-    GEN spaceInWt2 = getWt2cuspspace(gel(database,2), N, coeffsneeded);
+    GEN spaceInWt2 = getWt2cuspspace(gel(database,2), N, coeffsneeded*2/lowerMult);
 
-    if(!getNeededCoeffs(gel(gel(database, 2), N)))
-    {
-        if(details) pari_printf("expanding to max rank needed\n");
+    if(details) pari_printf("expanding to max rank needed\n");
         if(details) pari_printf("weight 2 space is length %ld\n", lg(spaceInWt2)-1);
         if(details) pari_printf("first two rows are %Ps\n", rowslice(spaceInWt2,1,2));
-        GEN pv = ZM_indexrank(spaceInWt2);
-        pv = gel(pv,1);
-        long firstFullRankRow = pv[lg(pv)-1];
+        long fieldp=2;
+        GEN pv = Flm_indexrank(embedWt2Space(spaceInWt2,fieldp), fieldp);
+        pari_sp lbefore = avma;
+        while(lg(gel(pv,1))<lg(spaceInWt2)) {
+            fieldp=unextprime(fieldp+1);
+            if(details) pari_printf("changing field to %ld\n", fieldp);
+            set_avma(lbefore);
+            pv = Flm_indexrank(embedWt2Space(spaceInWt2,fieldp), fieldp);
+        }
+        if(details) pari_printf("done indexrank bit\n");
+        long firstFullRankRow = gel(pv,1)[lg(gel(pv,1))-1];
         coeffsneeded = (firstFullRankRow+2)*lowerMult;
         if(knownCoefsThisLevel<coeffsneeded+1) expandBasisFor(gel(database,2), N, coeffsneeded+1);
         //Note down the number of coefficients needed, and save this to disc
         gel(gel(gel(database, 2), N), lg(gel(gel(database, 2), N))-1) = stoi(coeffsneeded/lowerMult);
-        char filename[20];
-        sprintf(filename, "wt2spaces/%ld.txt", N);
-        char dummyfilename[20];
-        sprintf(dummyfilename, "dummies2/%ld.txt", N);
-        FILE *dummy_file = fopen(dummyfilename, "w");
-        flock(fileno(dummy_file), LOCK_EX);
-        FILE *out_file = fopen(filename, "w");
-        pari_fprintf(out_file, "%Ps\n", gel(gel(database,2),N));
-        fclose(out_file);
-        flock(fileno(dummy_file), LOCK_UN);
-        fclose(dummy_file);
-    }
 
     if(lg(database)==4){
     database = vec_append(database, gen_0);
     }
 
+    gerepileall(veryTop, 3, &database, &spaceInWt2, &pv);
+
     if(details) pari_printf("inverting wt 2 basis\n");
-    GEN pv, den;
-    GEN wt2inv = ZM_pseudoinv(spaceInWt2, &pv, &den);
+    GEN den;
+    GEN wt2inv = ZM_inv(extract0(spaceInWt2,gel(pv,1),gel(pv,2)), &den);
     gel(database,4) = mkvec3(wt2inv,pv, den);
     database = gerepilecopy(veryTop, database);
 
@@ -4555,7 +4553,7 @@ GEN generateFourierCoefficients(long N){
 RIGHTBACKHERE:
     while(!uisprime(fieldp)) fieldp+=h;
     long primforp = itos(lift(znprimroot(stoi(fieldp))));
-    GEN embeddedBasis = embedWt2Space(spaceInWt2, fieldp, primforp);
+    GEN embeddedBasis = embedWt2Space(spaceInWt2, fieldp);
     if(Flm_rank(embeddedBasis,fieldp)<lg(embeddedBasis)-1){
         fieldp+=h;
         goto RIGHTBACKHERE;

@@ -37,7 +37,7 @@ main( int argc, char *argv[] )
     }
     if(argc==3){
     pari_init(10000000,1);
-    paristack_setsize(250000000, 20000000000);
+    paristack_setsize(250000000, 10000000000);
     int maxM = atoi(argv[1]);
     long threadnum = atoi(argv[2]);
     if(threadnum<1){
@@ -98,7 +98,7 @@ main( int argc, char *argv[] )
     }
 
     pari_init(1000000,1);
-    paristack_setsize(250000000, 10000000000);
+    paristack_setsize(250000000, 1000000000);
 
 
     FILE *fptr = fopen("wt1_conrey_dihedral_dims.txt", "r"); // read in
