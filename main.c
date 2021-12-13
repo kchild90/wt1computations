@@ -37,7 +37,7 @@ main( int argc, char *argv[] )
     }
     if(argc==3){
     pari_init(10000000,1);
-    paristack_setsize(250000000, 10000000000);
+    paristack_setsize(250000000, 15000000000);
     int maxM = atoi(argv[1]);
     long threadnum = atoi(argv[2]);
     if(threadnum<1){
@@ -96,9 +96,72 @@ main( int argc, char *argv[] )
         pari_printf("Computed level %ld\n", threadnum);
         return 0;
     }
+    if(argc==4){
+        pari_init(10000000,1);
+    paristack_setsize(250000000, 1000000000);
+    int numToProcess = atoi(argv[1]);
+    FILE *fptr = fopen("wt1_conrey_dihedral_dims.txt", "r"); // read in
+    GEN dihedralDims = zerovec(20000);
+    char line[100];
+    char sub[20];
+    int position = 0;
+    while(fgets(line, 100, fptr))
+    {
+            int c = 0;
+            while (line[c]!='.')
+            {
+                sub[c] = line[c];
+                c++;
+            }
+            sub[c] = '\0';
+            int lev = atoi(sub);
+            if(lev>10000) break;
+            c +=3;
+            position = c;
+            while (line[c]!=':')
+            {
+                sub[c-position] = line[c];
+                c++;
+            }
+            sub[c-position] = '\0';
+            GEN conreyLog = gp_read_str(sub);
+            position = ++c;
+            while (line[c]!=':')
+            {
+                sub[c-position] = line[c];
+                c++;
+            }
+            sub[c-position] = '\0';
+            int dihedralDimension = atoi(sub);
+             position = ++c;
+            while (line[c]!='\n')
+            {
+                sub[c-position] = line[c];
+                c++;
+            }
+            sub[c-position] = '\0';
+            GEN Dlcm = gp_read_str(sub);
+            if (gequal0(gel(dihedralDims,lev))){
+                gel(dihedralDims, lev) = mkvec(mkvec3(conreyLog, stoi(dihedralDimension), Dlcm));
+            } else {
+                gel(dihedralDims,lev) = vec_append(gel(dihedralDims,lev), mkvec3(conreyLog, stoi(dihedralDimension), Dlcm));
+            }
+        }
+                GEN something = generateFourierCoefficients(numToProcess, dihedralDims);
+            char filename[30];
+            sprintf(filename, "wt1coefs/%d.txt", numToProcess);
+            FILE *coefs_out = fopen(filename, "w");
+            for(int i = 1; i<lg(something); i++){
+                pari_fprintf(coefs_out, "%Ps\n", gel(something,i));
+            }
+            fclose(coefs_out);
+
+        pari_printf("Processed level %ld\n", numToProcess);
+        return 0;
+    }
 
     pari_init(1000000,1);
-    paristack_setsize(250000000, 1000000000);
+    paristack_setsize(250000000, 10000000000);
 
 
     FILE *fptr = fopen("wt1_conrey_dihedral_dims.txt", "r"); // read in
@@ -324,6 +387,7 @@ main( int argc, char *argv[] )
     if(mode==7){
         char filename[30];
         FILE *out_file = fopen("wt1_form_dims.txt", "w");
+        FILE *command_file = fopen("processcommands.txt", "w");
         printf("Please choose the maximum level you would like to generate a dimension file for: ");
         int maxM = itos(gp_read_stream(stdin));
         GEN database = mkvec3(zerovec(maxM), zerovec(maxM), dihedralDims);
@@ -345,18 +409,14 @@ main( int argc, char *argv[] )
                     pari_fprintf(out_file, "%ld:%Ps:%ld\n", N,gel(chars,i),dimension);
                 }
             }
-            GEN something = generateFourierCoefficients(N);
-            if(!gequal0(something)){
-            sprintf(filename, "wt1coefs/%ld.txt", N);
-            FILE *coefs_out = fopen(filename, "w");
-            for(int i = 1; i<lg(something); i++){
-                pari_fprintf(coefs_out, "%Ps\n", gel(something,i));
-            }
-            fclose(coefs_out);
+            if(hasExotic(N, dihedralDims)){
+                pari_printf("here with level %ld\n", N);
+                pari_fprintf(command_file, "./a.out %ld 0 0\n", N);
             }
             set_avma(ltop);
         }
         fclose(out_file);
+        fclose(command_file);
     }
 
     if(mode==8){

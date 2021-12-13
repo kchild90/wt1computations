@@ -2595,7 +2595,6 @@ void expandBasisFor(GEN database, long N, long lastCoef)
         pari_sp ltop = avma;
         if (divs[i]<11) continue;
         if(vecsearch(mkvecsmalln(7, 12, 13, 16, 18, 25, 28, 60), stoi(divs[i]), NULL)>0) continue;
-        pari_printf("expanding level %ld\n", divs[i]);
         GEN altSpace = expandBasisUpTo(divs[i], gcopy(gel(database, divs[i])), lastCoef);
         long didAnything = !gequal(altSpace, gel(database, divs[i]));
         if (!didAnything) {
@@ -2616,7 +2615,6 @@ void expandBasisFor(GEN database, long N, long lastCoef)
         flock(fileno(dummy_file), LOCK_UN);
         fclose(dummy_file);
     }
-    pari_printf("all expanded\n");
 }
 
 //Coefficients of a weight 2 space already known, in a matrix, append coefficients to the matrix
@@ -2964,18 +2962,6 @@ GEN diagonalise(GEN gcds, GEN chiVals, long oldDim, GEN space, long fieldp)
 
         for (long i = 1; i<=nbrows(factors); i++)
         {
-            /*if (lg(gcoeff(factors, i, 1))>4)
-            {
-                pari_printf("actsNew is %Ps\n", actsNew);
-                pari_printf("heckep is %ld\n", p);
-                pari_printf("randi is %ld\n", randi);
-                //Tm doesn't split. Need a different field.
-                pari_printf("factors are %Ps\n", factors);
-                pari_printf("roots are %Ps\n", Flx_roots(Flm_charpoly(actsNew, fieldp), fieldp));
-                pari_printf("oneroot is %ld\n", Flx_oneroot_split(gcoeff(factors,i,1), fieldp));
-                set_avma(ltop);
-                return NULL;
-            }*/
             if(gel(factors,2)[i]!=1)
             {
                 hasRepeats = 1;
@@ -4083,11 +4069,8 @@ ESTABLISHFIELD:
         if(details) pari_printf("currently have %ld coefficients\n", coeffsneeded);
         if(details) pari_printf("tried to diagonalise by %ld but couldn't\n", -itos(diagonalised));
         //Needed more coefficients to diagonalise
-        coeffsneeded/=lowerMult;
-        while(Flm_inv(rowslice(stable, 1, coeffsneeded), fieldp)!=NULL){
-            coeffsneeded-=2;
-        }
-        coeffsneeded+=2;
+        coeffsneeded/=-itos(diagonalised);
+        coeffsneeded+=10;
         coeffsneeded*=-itos(diagonalised);
         if(details) pari_printf("going to compute %ld\n", coeffsneeded);
         if(knownCoefsThisLevel<coeffsneeded) expandBasisFor(gel(database,2), N, coeffsneeded);
@@ -4178,9 +4161,23 @@ ESTABLISHFIELD:
     spaceInWt2 = rowslice(spaceInWt2, 1, coeffsneeded);
 
     GEN inversionDetails = gel(database,4);
-    GEN wt2inv = gel(inversionDetails,1);
-    GEN pv = gel(inversionDetails, 2);
-    GEN den = gel(inversionDetails, 3);
+    GEN wt2inv, pv, den;
+    if(lg(inversionDetails)==3){
+        pv = inversionDetails;
+        if(details) pari_printf("inverting wt 2 basis\n");
+        pari_sp beforeInversion = avma;
+        wt2inv = ZM_inv(extract0(spaceInWt2,gel(pv,1),gel(pv,2)), &den);
+        gerepileall(beforeInversion, 2, &wt2inv, &den);
+        gel(database,4) = mkvec3(wt2inv,pv, den);
+
+        if(details) pari_printf("inverted. Resetting stack size\n");
+
+        paristack_resize(250000000);
+    } else {
+        wt2inv = gel(inversionDetails,1);
+        pv = gel(inversionDetails, 2);
+        den = gel(inversionDetails, 3);
+    }
 
     if(details) pari_printf("computing Eis series over Q \n");
 
@@ -4377,29 +4374,19 @@ GEN updateDatabaseForLevel(GEN database, long N, long maxM)
             pv = Flm_indexrank(embedWt2Space(spaceInWt2,fieldp), fieldp);
         }
         if(details) pari_printf("done indexrank bit\n");
-        long firstFullRankRow = gel(pv,1)[lg(gel(pv,1))-1];
-        coeffsneeded = (firstFullRankRow+2)*lowerMult;
+        long thirdFullRankRow = 3+gel(pv,1)[lg(gel(pv,1))-1];
+        coeffsneeded = thirdFullRankRow*lowerMult;
         if(knownCoefsThisLevel<coeffsneeded+1) expandBasisFor(gel(database,2), N, coeffsneeded+1);
         //Note down the number of coefficients needed, and save this to disc
         gel(gel(gel(database, 2), N), lg(gel(gel(database, 2), N))-1) = stoi(coeffsneeded/lowerMult);
 
     if(lg(database)==4){
-    database = vec_append(database, gen_0);
+    database = vec_append(database, pv);
+    } else {
+    gel(database,4)=pv;
     }
 
-    gerepileall(veryTop, 3, &database, &spaceInWt2, &pv);
-
-    if(details) pari_printf("inverting wt 2 basis\n");
-    GEN den;
-    GEN wt2inv = ZM_inv(extract0(spaceInWt2,gel(pv,1),gel(pv,2)), &den);
-    gel(database,4) = mkvec3(wt2inv,pv, den);
-    database = gerepilecopy(veryTop, database);
-
-    if(details) pari_printf("inverted. Resetting stack size\n");
-
-    paristack_resize(250000000);
-
-    if(details) pari_printf("Stack size reset\n");
+    gerepileall(veryTop, 2, &database, &pv);
 
     for (long i = 1; i<lg(stats); i++)
     {
@@ -4423,6 +4410,7 @@ GEN updateDatabaseForLevel(GEN database, long N, long maxM)
         GEN vals = ncharvecexpo(gel(chiPrim,1), normal);
         database = getWt1NewForms(charOrder, N, gel(stats,i), vals, database, details);
         database = gerepilecopy(veryTop, database);
+        paristack_resize(250000000);
     }
     }
     sprintf(filename, "wt1spaces/%ld.txt", N);
@@ -4515,10 +4503,30 @@ void specifTrace(long N, long n)
     wt2trivialTraceByPsi(sqrts, n, psi, 1);
 }
 
-GEN generateFourierCoefficients(long N){
+long hasExotic(long N, GEN dihedralDims){
+    char filename[30];
+    sprintf(filename, "wt1spaces/%ld.txt", N);
+    FILE *in_file = fopen(filename, "r");
+    if(in_file==NULL){
+        return 0;
+    }
+    GEN oldData = gp_read_file(filename);
+    fclose(in_file);
+    if (gequal0(oldData)) return 0;
+    for (long j = 1; j<lg(oldData); j++)
+        {
+        long dihedralDim = getDihedralDim(N, gel(gel(oldData,j),1), dihedralDims);
+        if (dihedralDim<lg(gel(gel(oldData,j),2))-1) return 1;
+        }
+        return 0;
+}
+
+GEN generateFourierCoefficients(long N, GEN dihedralDims){
     long coeffsNeeded = mfsturmNk(N,1);
     long altNeeded = 30*usqrt(N);
     if(coeffsNeeded<=altNeeded) coeffsNeeded = altNeeded+1;
+
+    char dummyfilename[20];
     char filename[30];
     sprintf(filename, "wt1spaces/%ld.txt", N);
     FILE *in_file = fopen(filename, "r");
@@ -4531,12 +4539,20 @@ GEN generateFourierCoefficients(long N){
     GEN wt2data = zerovec(N);
     GEN divs = divisorsu(N);
     for(long i = 2; i<lg(divs); i++){
+        if (divs[i]<11) continue;
+        if(vecsearch(mkvecsmalln(7, 12, 13, 16, 18, 25, 28, 60), stoi(divs[i]), NULL)>0) continue;
+
+        sprintf(dummyfilename, "dummies2/%ld.txt", divs[i]);
+        FILE *dummy_file = fopen(dummyfilename, "w");
+        flock(fileno(dummy_file), LOCK_EX);
         sprintf(filename, "wt2spaces/%ld.txt", divs[i]);
         in_file = fopen(filename, "r");
         if(in_file!=NULL){
             gel(wt2data,divs[i]) = gp_read_file(filename);
             fclose(in_file);
         }
+            flock(fileno(dummy_file), LOCK_UN);
+        fclose(dummy_file);
     }
     long knownCoefs = numcoefsknown(wt2data, N);
     if(knownCoefs<coeffsNeeded) expandBasisFor(wt2data, N, coeffsNeeded);
@@ -4562,6 +4578,8 @@ RIGHTBACKHERE:
     GEN group = znstar0(stoi(N),1);
         for (long j = 1; j<lg(oldData); j++)
         {
+        long dihedralDim = getDihedralDim(N, gel(gel(oldData,j),1), dihedralDims);
+        if (dihedralDim==lg(gel(gel(oldData,j),2))-1) continue;
         GEN chiPrim = znchartoprimitive(group, gel(gel(oldData,j),1));
         GEN normal = znconreylog_normalize(gel(chiPrim,1), gel(chiPrim,2));
         long charOrder = itos(zncharorder(group, gel(gel(oldData,j),1)));
@@ -4578,7 +4596,6 @@ RIGHTBACKHERE:
                 satakesToForms = vec_append(satakesToForms, liftSatakeToQ(N, gel(satakes,satakei), polyVals, uprime(nbrows(satakes))-1, cycloOrder, charOrder));
             }
             if(coeffsNeeded>nbrows(satakesToForms)){
-                pari_printf("getting more!\n");
                 long charOrderElt = Fl_powu(primforp, (fieldp-1)/charOrder, fieldp);
                 GEN chiVals = const_vecsmall(lg(polyVals)-1,0);
                 for(long i = 1; i<lg(chiVals); i++)
@@ -4630,6 +4647,7 @@ RIGHTBACKHERE:
                 }
 
             }
+        if(lg(outputForms)==1) return gen_0;
     return outputForms;
 }
 
