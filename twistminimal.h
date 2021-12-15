@@ -6,7 +6,7 @@ GEN getAllCharStats(long N);
 
 long wt1newformdimension(long N, GEN stats, GEN wt1data);
 
-GEN updateDatabaseForLevel(GEN database, long N, long maxM);
+GEN updateDatabaseForLevel(GEN database, long N, long maxM, long details);
 
 long wt1newformDimFromExp(GEN N, GEN chiexp, GEN database);
 

@@ -35,9 +35,11 @@ main( int argc, char *argv[] )
         fclose(out_file);
         return 0;
     }
-    if(argc==3){
+    if(argc==4){
+    long RAMallowed = atol(argv[3]);
     pari_init(10000000,1);
-    paristack_setsize(250000000, 15000000000);
+    paristack_setsize(250000000, RAMallowed);
+    pari_printf("ramallowed is %ld\n", RAMallowed);
     int maxM = atoi(argv[1]);
     long threadnum = atoi(argv[2]);
     if(threadnum<1){
@@ -92,13 +94,13 @@ main( int argc, char *argv[] )
             }
         }
         GEN database = mkvec3(zerovec(maxM), zerovec(maxM), dihedralDims);
-        database = updateDatabaseForLevel(database, threadnum, maxM);
+        database = updateDatabaseForLevel(database, threadnum, maxM, 0);
         pari_printf("Computed level %ld\n", threadnum);
         return 0;
     }
-    if(argc==4){
+    if(argc==3){
         pari_init(10000000,1);
-    paristack_setsize(250000000, 1000000000);
+    paristack_setsize(250000000, 20000000000);
     int numToProcess = atoi(argv[1]);
     FILE *fptr = fopen("wt1_conrey_dihedral_dims.txt", "r"); // read in
     GEN dihedralDims = zerovec(20000);
@@ -161,7 +163,7 @@ main( int argc, char *argv[] )
     }
 
     pari_init(1000000,1);
-    paristack_setsize(250000000, 10000000000);
+    paristack_setsize(250000000, 15000000000);
 
 
     FILE *fptr = fopen("wt1_conrey_dihedral_dims.txt", "r"); // read in
@@ -230,7 +232,7 @@ main( int argc, char *argv[] )
         for(int N=1; N<maxM; N++)
         {
             pari_printf("Computing level N=%ld\n", N);
-            database = updateDatabaseForLevel(database, N, maxM);
+            database = updateDatabaseForLevel(database, N, maxM, 0);
             database = gerepilecopy(ltop, database);
         }
         while(1)
@@ -252,7 +254,7 @@ main( int argc, char *argv[] )
         for(int N=1; N<maxM; N++)
         {
             GEN database = mkvec3(zerovec(maxM), zerovec(maxM), dihedralDims);
-            database = updateDatabaseForLevel(database, N, maxM);
+            database = updateDatabaseForLevel(database, N, maxM, 0);
             GEN group = znstar0(stoi(N),1);
             GEN chars = getAllCharStats(N);
             for(int i=1; i<lg(chars); i++)
@@ -272,36 +274,10 @@ main( int argc, char *argv[] )
     }
     if(mode==3)
     {
-        while(1)
-        {
-            printf("Please select a maximum level to compute up to: ");
-            int maxM = 1+itos(gp_read_stream(stdin));
-            pari_sp ltop = avma;
-            GEN database = mkvec3(zerovec(maxM), zerovec(maxM), dihedralDims);
-            clock_t before = clock();
-            for(int N=1; N<maxM; N++)
-            {
-                pari_printf("Performing my computations for level N=%ld\n", N);
-                database = updateDatabaseForLevel(database, N, maxM);
-                database = gerepilecopy(ltop, database);
-            }
-            clock_t difference = clock() - before;
-            int myTime = difference / CLOCKS_PER_SEC;
-            before = clock();
-            for(int N=1; N<maxM; N++)
-            {
-                pari_printf("Performing PARI's computations for level N=%ld\n", N);
-                GEN group = znstar0(stoi(N),1);
-                GEN chars = getAltCharStats(N);
-                for(int i=1; i<lg(chars); i++)
-                {
-                    mfdim(mkvec3(stoi(N),gen_1,mkvec2(group,gel(chars,i))), 0);
-                }
-            }
-            difference = clock() - before;
-            int parisTime = difference/CLOCKS_PER_SEC;
-            pari_printf("Computing up to level %ld took my computation %ld seconds and PARI's computation %ld seconds\n", maxM-1, myTime, parisTime);
-        }
+        printf("Please choose the level you would like to compute weight-1 forms for: ");
+        int maxM = itos(gp_read_stream(stdin));
+        GEN database = mkvec3(zerovec(maxM), zerovec(maxM), dihedralDims);
+        updateDatabaseForLevel(database, maxM, maxM, 1);
     }
      //Mode 4 times my computation
     if(mode==4)
@@ -317,7 +293,7 @@ main( int argc, char *argv[] )
             {
                 GEN database = mkvec3(zerovec(maxM), zerovec(maxM), dihedralDims);
                 pari_printf("Performing computations for level N=%ld\n", N);
-                database = updateDatabaseForLevel(database, N, maxM);
+                database = updateDatabaseForLevel(database, N, maxM, 0);
                 set_avma(ltop);
             }
 
@@ -343,7 +319,7 @@ main( int argc, char *argv[] )
         {
             int N = divs[i];
             pari_printf("Computing level N=%ld\n", N);
-            database = updateDatabaseForLevel(database, N, maxM);
+            database = updateDatabaseForLevel(database, N, maxM, 0);
             database = gerepilecopy(ltop, database);
         }
         while(1)
@@ -365,7 +341,7 @@ main( int argc, char *argv[] )
         {
             N = divs[i];
             pari_printf("Computing level N=%ld\n", N);
-            database = updateDatabaseForLevel(database, N, maxM);
+            database = updateDatabaseForLevel(database, N, maxM, 0);
             database = gerepilecopy(ltop, database);
         }
         pari_printf("Checking computations.\n");
@@ -411,7 +387,7 @@ main( int argc, char *argv[] )
             }
             if(hasExotic(N, dihedralDims)){
                 pari_printf("here with level %ld\n", N);
-                pari_fprintf(command_file, "./a.out %ld 0 0\n", N);
+                pari_fprintf(command_file, "./a.out %ld 0\n", N);
             }
             set_avma(ltop);
         }
@@ -670,7 +646,7 @@ main( int argc, char *argv[] )
             {
                 GEN database = mkvec3(zerovec(maxM), zerovec(maxM), dihedralDims);
                 pari_printf("Performing computations for level N=%ld\n", N);
-                database = updateDatabaseForLevel(database, N, maxM);
+                database = updateDatabaseForLevel(database, N, maxM, 0);
                 set_avma(ltop);
                 num_file = fopen("calcupto.txt", "r");
                 flock(fileno(num_file), LOCK_EX);
@@ -694,6 +670,7 @@ main( int argc, char *argv[] )
     }
 
     if (mode==100){
+        long RAMallowed = 15000000000;
         printf("Please select a maximum level to aim for: ");
         int maxM = 1+itos(gp_read_stream(stdin));
         FILE *files[3];
@@ -705,21 +682,19 @@ main( int argc, char *argv[] )
         files[2] = out_file3;
         for(long i = -62; i<2000; i++)
         {
-            pari_fprintf(files[0], "./a.out %ld %ld\n", maxM, i);
+            pari_fprintf(files[0], "./a.out %ld %ld %ld\n", maxM, i, RAMallowed);
         }
         for(long i = -126; i<-62; i++){
             pari_fprintf(files[1], "./a.out %ld -50\n", maxM);
-        }
-        for(long i = -126; i<-62; i++){
-            pari_fprintf(files[2], "./a.out %ld -100\n", maxM);
+            pari_fprintf(files[2], "./a.out %ld -50\n", maxM);
         }
         for(long i = 2000; i<3000; i++){
             long index = random_Fl(2);
-            pari_fprintf(files[index], "./a.out %ld %ld\n", maxM, i);
+            pari_fprintf(files[index], "./a.out %ld %ld %ld\n", maxM, i, RAMallowed);
         }
         for(long i = 3000; i<maxM; i++){
             long index = random_Fl(3);
-            pari_fprintf(files[index], "./a.out %ld %ld\n", maxM, i);
+            pari_fprintf(files[index], "./a.out %ld %ld %ld\n", maxM, i, RAMallowed);
         }
         fclose(files[0]);
         fclose(files[1]);
@@ -776,10 +751,12 @@ main( int argc, char *argv[] )
         }
 
     if (mode==999){
+        long RAMallowed = 50000000000;
+        FILE *out_file = fopen("finalcommands", "w");
         printf("Should be up to?:");
         int maxM = itos(gp_read_stream(stdin));
         pari_sp av = avma;
-        for(int N = 1; N<=maxM; N++){
+        for(int N = 26; N<=maxM; N++){
         int willcompsomething = 0;
             GEN stats = getAltCharStats(N);
 
@@ -808,11 +785,13 @@ main( int argc, char *argv[] )
         FILE *in_file = fopen(filename, "r");
         if(in_file == NULL){
             pari_printf("didn't get %ld\n", N);
+            pari_fprintf(out_file, "./a.out %ld %ld %ld\n", maxM, N, RAMallowed);
         } else {
             fclose(in_file);
         }
         set_avma(av);
         }
+        fclose(out_file);
     }
 
 

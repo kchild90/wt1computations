@@ -343,12 +343,24 @@ myugcd(GEN GCD, ulong x)
     return GCD[x+1];
 }
 
+GEN fullfactor(long N)
+{
+    pari_sp ltop = avma;
+    GEN factor = factoru(N);
+    GEN P = gel(factor,1);
+    GEN E = gel(factor,2);
+    GEN PE = cgetg(lg(P),t_VECSMALL);
+    for(long i = 1; i<lg(P); i++) PE[i] = upowuu(P[i],E[i]);
+    GEN fullFactor = mkvec3(gcopy(P),gcopy(E),gcopy(PE));
+    return gerepilecopy(ltop, fullFactor);
+}
+
 //Get factor of N from cache
 GEN
 myfactoru(long N)
 {
     GEN z = cache_get(cache_FACT, N);
-    return z? gcopy(z): factoru(N);
+    return z? gcopy(z): fullfactor(N);
 }
 
 /* getCharGroup for p^e*/
@@ -2027,7 +2039,6 @@ GEN expandBasisUpTo(long N, GEN spaces, long lim)
         GEN traceform = gel(minspace,2);
         TwistChar psi = initialiseWt2TwistChar(N, gel(gel(spaces,spacei),1), allgroups);
         psi.gcds = gcds;
-
         long numKnown = lg(traceform)-1;
         for (long i = 1; i<lg(gel(minspace,3)); i++)
         {
@@ -2092,7 +2103,6 @@ GEN expandBasisUpTo(long N, GEN spaces, long lim)
                             }*/
                             else
                             {
-                                //pari_printf("computing trace for %ld\n", nmoverr2);
                                 gel(traceform, nmoverr2) = wt2trivialTraceByPsi(sqrts, nmoverr2, psi, 0);
                             }
                         }
@@ -2102,7 +2112,6 @@ GEN expandBasisUpTo(long N, GEN spaces, long lim)
         }
         gel(minspace,2) = gerepilecopy(beforeTraceComputations, traceform);
         gel(spaces, spacei) = minspace;
-        //pari_printf("successfully updated space %ld of %ld\n", spacei, lg(spaces)-1);
     }
     return gerepilecopy(ltop, spaces);
 }
@@ -4161,6 +4170,7 @@ ESTABLISHFIELD:
     spaceInWt2 = rowslice(spaceInWt2, 1, coeffsneeded);
 
     GEN inversionDetails = gel(database,4);
+
     GEN wt2inv, pv, den;
     if(lg(inversionDetails)==3){
         pv = inversionDetails;
@@ -4247,11 +4257,10 @@ GEN getTraceVec(GEN group, GEN chiL)
 
 //GEN myLowStackInverse
 
-GEN updateDatabaseForLevel(GEN database, long N, long maxM)
+GEN updateDatabaseForLevel(GEN database, long N, long maxM, long details)
 {
     //Set details = 1 for very verbose output
     //Set details = 0 for normal running
-    long details = 0;
     if(details) pari_printf("finding all characters\n");
     GEN stats = getAltCharStats(N);
 
@@ -4363,8 +4372,8 @@ GEN updateDatabaseForLevel(GEN database, long N, long maxM)
 
     if(details) pari_printf("expanding to max rank needed\n");
         if(details) pari_printf("weight 2 space is length %ld\n", lg(spaceInWt2)-1);
-        if(details) pari_printf("first two rows are %Ps\n", rowslice(spaceInWt2,1,2));
-        long fieldp=2;
+        if(details) pari_printf("Weight 2 space rank is %ld\n", rank(spaceInWt2));
+        long fieldp=101;
         GEN pv = Flm_indexrank(embedWt2Space(spaceInWt2,fieldp), fieldp);
         pari_sp lbefore = avma;
         while(lg(gel(pv,1))<lg(spaceInWt2)) {
@@ -4376,7 +4385,9 @@ GEN updateDatabaseForLevel(GEN database, long N, long maxM)
         if(details) pari_printf("done indexrank bit\n");
         long thirdFullRankRow = 3+gel(pv,1)[lg(gel(pv,1))-1];
         coeffsneeded = thirdFullRankRow*lowerMult;
+        if(details) pari_printf("initial coefs needed will be %ld\n", coeffsneeded);
         if(knownCoefsThisLevel<coeffsneeded+1) expandBasisFor(gel(database,2), N, coeffsneeded+1);
+        if(details) pari_printf("expanded basis to that amount\n");
         //Note down the number of coefficients needed, and save this to disc
         gel(gel(gel(database, 2), N), lg(gel(gel(database, 2), N))-1) = stoi(coeffsneeded/lowerMult);
 
@@ -4387,6 +4398,8 @@ GEN updateDatabaseForLevel(GEN database, long N, long maxM)
     }
 
     gerepileall(veryTop, 2, &database, &pv);
+
+    if(details) pari_printf("about to do exotic checks\n");
 
     for (long i = 1; i<lg(stats); i++)
     {
@@ -4524,7 +4537,7 @@ long hasExotic(long N, GEN dihedralDims){
 GEN generateFourierCoefficients(long N, GEN dihedralDims){
     long coeffsNeeded = mfsturmNk(N,1);
     long altNeeded = 30*usqrt(N);
-    if(coeffsNeeded<=altNeeded) coeffsNeeded = altNeeded+1;
+    if(coeffsNeeded<=altNeeded) coeffsNeeded = altNeeded;
 
     char dummyfilename[20];
     char filename[30];
@@ -4576,6 +4589,7 @@ RIGHTBACKHERE:
     }
     GEN outputForms = cgetg(1,t_VEC);
     GEN group = znstar0(stoi(N),1);
+    pari_sp ltop = avma;
         for (long j = 1; j<lg(oldData); j++)
         {
         long dihedralDim = getDihedralDim(N, gel(gel(oldData,j),1), dihedralDims);
@@ -4620,9 +4634,6 @@ RIGHTBACKHERE:
                 satakesToForms = Flm_mul(tempWt1, gaussTransform, fieldp);
                 satakes = basisToSatake(mkgcd(N), N, satakesToForms, chiVals, fieldp, primforp);
                 gel(gel(oldData,j),2) = satakes;
-                sprintf(filename, "wt1spaces/%ld.txt", N);
-                FILE *out_file = fopen(filename, "w");
-                fclose(out_file);
                 satakesToForms = cgetg(1,t_MAT);
             for(long satakei = 1; satakei<lg(satakes); satakei++){
                 satakesToForms = vec_append(satakesToForms, liftSatakeToQ(N, gel(satakes,satakei), polyVals, uprime(nbrows(satakes))-1, cycloOrder, charOrder));
@@ -4645,7 +4656,7 @@ RIGHTBACKHERE:
                     }
                     outputForms = vec_append(outputForms, mkvec3(gel(gel(oldData,j),1),stoi(cycloOrder/deflateBy), fourierExpansion));
                 }
-
+                outputForms = gerepilecopy(ltop, outputForms);
             }
         if(lg(outputForms)==1) return gen_0;
     return outputForms;
