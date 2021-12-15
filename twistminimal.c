@@ -4568,7 +4568,9 @@ GEN generateFourierCoefficients(long N, GEN dihedralDims){
         fclose(dummy_file);
     }
     long knownCoefs = numcoefsknown(wt2data, N);
+    pari_printf("expanding from %ld up to %ld\n", knownCoefs, coeffsNeeded);
     if(knownCoefs<coeffsNeeded) expandBasisFor(wt2data, N, coeffsNeeded);
+    pari_printf("expansion done\n");
     GEN spaceInWt2 = getWt2cuspspace(wt2data, N, coeffsNeeded);
     long h = eulerphiu(N);
     for (long j = 1; j<lg(oldData); j++)
@@ -4594,22 +4596,31 @@ RIGHTBACKHERE:
         {
         long dihedralDim = getDihedralDim(N, gel(gel(oldData,j),1), dihedralDims);
         if (dihedralDim==lg(gel(gel(oldData,j),2))-1) continue;
+        pari_printf("getting coefs for character %Ps\n", gel(gel(oldData, j), 1));
         GEN chiPrim = znchartoprimitive(group, gel(gel(oldData,j),1));
         GEN normal = znconreylog_normalize(gel(chiPrim,1), gel(chiPrim,2));
         long charOrder = itos(zncharorder(group, gel(gel(oldData,j),1)));
         GEN polyVals = ncharvecexpo(gel(chiPrim,1), normal);
+        pari_printf("char initialised\n");
             GEN satakes = gel(gel(oldData,j), 2);
             long cycloOrder = charOrder;
         for(long i = 1; i<lg(satakes); i++){
             gel(satakes,i) = vec_to_vecsmall(gel(satakes,i));
             cycloOrder = ulcm(cycloOrder, gel(satakes,i)[1]);
         }
+        pari_printf("cycloOrder will be %ld\n", cycloOrder);
         GEN cycloPol = polcyclo(cycloOrder, 0);
+        pari_printf("cycloPol computed\n");
             GEN satakesToForms = cgetg(1,t_MAT);
+            pari_sp beforeSatakeConversion = avma;
             for(long satakei = 1; satakei<lg(satakes); satakei++){
+                pari_printf("lifting form %ld of %ld\n", satakei, lg(satakes)-1);
                 satakesToForms = vec_append(satakesToForms, liftSatakeToQ(N, gel(satakes,satakei), polyVals, uprime(nbrows(satakes))-1, cycloOrder, charOrder));
+                satakesToForms = gerepilecopy(beforeSatakeConversion, satakesToForms);
             }
+            pari_printf("satakes to forms computed\n");
             if(coeffsNeeded>nbrows(satakesToForms)){
+                pari_printf("expanding forms\n");
                 long charOrderElt = Fl_powu(primforp, (fieldp-1)/charOrder, fieldp);
                 GEN chiVals = const_vecsmall(lg(polyVals)-1,0);
                 for(long i = 1; i<lg(chiVals); i++)
@@ -4627,27 +4638,35 @@ RIGHTBACKHERE:
                 GEN eis = eisSeries(chiVals, coeffsNeeded, fieldp, eisC);
                 GEN tempWt1 = divideBasisByEis(embeddedBasis, eis, fieldp);
                 satakesToForms = cgetg(1,t_MAT);
+                pari_sp beforeAppending = avma;
             for(long satakei = 1; satakei<lg(satakes); satakei++){
                 satakesToForms = vec_append(satakesToForms, liftSatakeToFp(N, gel(satakes,satakei), chiVals, fieldp, primforp));
+                satakesToForms = gerepilecopy(beforeAppending, satakesToForms);
             }
+                pari_printf("about to do Gauss transform\n");
                 GEN gaussTransform = Flm_gauss(rowslice(tempWt1,1,nbrows(satakesToForms)), satakesToForms, fieldp);
                 satakesToForms = Flm_mul(tempWt1, gaussTransform, fieldp);
                 satakes = basisToSatake(mkgcd(N), N, satakesToForms, chiVals, fieldp, primforp);
                 gel(gel(oldData,j),2) = satakes;
                 satakesToForms = cgetg(1,t_MAT);
+                pari_sp beforeSecondAppend = avma;
             for(long satakei = 1; satakei<lg(satakes); satakei++){
                 satakesToForms = vec_append(satakesToForms, liftSatakeToQ(N, gel(satakes,satakei), polyVals, uprime(nbrows(satakes))-1, cycloOrder, charOrder));
+                satakesToForms = gerepilecopy(beforeSecondAppend, satakesToForms);
             }
             }
+            pari_printf("satakesToForms has %ld elements\n", lg(satakesToForms)-1);
             for (long i = 1; i<lg(satakesToForms); i++){
                 long deflateBy = cycloOrder;
                 GEN fourierExpansion = gel(satakesToForms,i);
+                pari_printf("finding deflation amount\n");
                     for(long fourj = 2; fourj<lg(fourierExpansion); fourj++)
                     {
                         if(gequal0(gel(fourierExpansion, fourj))) continue;
                         gel(fourierExpansion,fourj) = QXQ_div(gel(fourierExpansion,fourj), gel(fourierExpansion,1), cycloPol);
                         deflateBy = ugcd(deflateBy, degree(gel(fourierExpansion,fourj)));
                     }
+                    pari_printf("deflating and storing\n");
                     if(deflateBy>1){
                     for(long fourj = 2; fourj<lg(fourierExpansion); fourj++)
                         {
